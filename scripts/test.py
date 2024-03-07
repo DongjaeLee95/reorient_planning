@@ -2,6 +2,7 @@
 from casadi import *
 import numpy as np
 import pytictoc
+import matplotlib.pyplot as plt
 
 # Declare variables
 x = SX.sym("x",2)
@@ -46,3 +47,26 @@ print("vec: ", vec[3:6].T @ vec2)
 
 print("a", np.array([[1, 2, 3],[4, 5, 6]]))
 # print("vec: ", vec[1:])
+
+X = [1,2 ,3, 4, 5]
+Y = [1, 4, 9, 16 ,25]
+
+plt1 = plt.figure()
+plt.plot(X,Y,color='red',marker='o',alpha=0.5,linewidth=2)
+plt.title("mohand's code block")
+plt.xlabel("x example")
+plt.ylabel("y example")
+plt.grid(True)
+# plt1.show()
+
+plt2 = plt.figure()
+plt.plot(X,Y,color='red',marker='o',alpha=0.5,linewidth=2)
+plt.title("mohand's code block")
+plt.xlabel("x example")
+plt.ylabel("y example")
+plt.grid(True)
+# plt2.show()
+
+plt.show()
+
+# input()
