@@ -3,6 +3,8 @@ import numpy as np
 # import math
 # import pytictoc
 import math_lib
+import sys
+import traceback
 from casadi import *
 
 """
@@ -71,9 +73,11 @@ class reorient_planning:
    
         self.J = 0.0
 
-        p_opts = {"expand":True}
+        # p_opts = {"expand":True}
+        p_opts = {"expand":True, "print_iteration": False}
 
-        self.opti.solver("ipopt",p_opts)
+        # self.opti.solver("ipopt",p_opts)
+        self.opti.solver("snopt",p_opts)
 
     def set_variable(self,phi_d,u):
         self.phi_d = phi_d
@@ -83,7 +87,8 @@ class reorient_planning:
         # self.phi_r_casadi[1] = self.phi_r_prev[1] + self.dt_*self.beta
         # self.phi_r_casadi[2] = self.phi_r_prev[2]
 
-    def set_cost(self):
+    def set_cost(self): 
+        #### something wrong in here! J_phi is only defined with numeric values and not by casadi values...
         J_phi = (self.phi_r - self.phi_d).T@(self.phi_r - self.phi_d)
 
         Rc = self.cm.Rzyx_casadi(self.phi_r_casadi)
@@ -143,10 +148,19 @@ class reorient_planning:
  
     def solve(self):
         self.opti.set_initial(self.x,self.x_prev)
-        sol = self.opti.solve()
 
+        sol_numeric = np.zeros(4)
+        sol = self.opti.solve()
         sol_numeric = sol.value(self.x)
-        print("sol_numeric: ", sol_numeric)
+        try:
+            sol = self.opti.solve()
+            sol_numeric = sol.value(self.x)
+            print("sol_numeric: ", sol_numeric)
+        except:
+            sys.stdout = open('solver_output.txt', 'w')
+            traceback.print_exc(file=sys.stdout)
+            sys.stdout.close()
+            print("optimization failed")
 
         # update previous values for next time use
         self.phi_r[0] = self.phi_r_prev[0] + self.dt_*sol_numeric[0]

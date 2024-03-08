@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import numpy as np
 import math as m
-from casadi import *
+import sys
+sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
+from acados_template import AcadosOcp, AcadosOcpSolver
 import reorient_planning
 import math_lib
 import pytictoc
 import time
 import matplotlib.pyplot as plt
-import shelve
 
 def set_Am(L,kf,tilt_ang):
     ca = m.cos(tilt_ang)
@@ -58,9 +59,9 @@ if __name__ == '__main__':
     reorient_plan = reorient_planning.reorient_planning(dt_, m_, g_, R_, phi_d_, u0,
                                                         Am_, umax_, umin_, phidot_lb_, phidot_ub_)
 
-    tf = 10 # 1.0
+    tf = 1 # 1.0
     ts = np.linspace(0.0,tf,int(tf/dt_))    
-    rho = 1.0
+    rho = 0.1
 
     # data collection
     compt_time = np.zeros(len(ts))
@@ -70,10 +71,11 @@ if __name__ == '__main__':
     for k in range(len(ts)):
         print("step: ",k)
         # control input in the world frame
-        if k < int(tf/(2.0*dt_)):
-            Rf = np.array([[rho*2.0/tf*ts[k]*m_*g_],[0.0],[m_*g_]])
-        else:
-            Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
+        # if k < int(tf/(2.0*dt_)):
+        #     Rf = np.array([[rho*2.0/tf*ts[k]*m_*g_],[0.0],[m_*g_]])
+        # else:
+        #     Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
+        Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
 
         tau = np.zeros((3,1))
         u[:,k] = (np.linalg.inv(Am_) @ np.vstack((R_.T@Rf,tau))).reshape(6,)
