@@ -1,142 +1,106 @@
 #!/usr/bin/env python3
 import numpy as np
-import math as m
-import sys
-sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
-from acados_template import AcadosOcp, AcadosOcpSolver
+import math
 import reorient_planning
 import math_lib
 import pytictoc
 import time
 import matplotlib.pyplot as plt
-
-def set_Am(L,kf,tilt_ang):
-    ca = m.cos(tilt_ang)
-    sa = m.sin(tilt_ang)
-
-    P1 = L*ca - kf*sa
-    P2 = L*sa + kf*ca
-    return np.array(
-        [ [-0.5*sa, -0.5*sa, sa, -0.5*sa, -0.5*sa, sa],
-          [-m.sqrt(3)/2*sa, m.sqrt(3)/2*sa, 0, -m.sqrt(3)/2*sa, m.sqrt(3)/2*sa, 0],
-          [ca, ca, ca, ca, ca, ca],
-          [-0.5*P1, 0.5*P1, P1, 0.5*P1, -0.5*P1, -P1],
-          [-m.sqrt(3)/2*P1, -m.sqrt(3)/2*P1, 0, m.sqrt(3)/2*P1, m.sqrt(3)/2*P1, 0],
-          [-P2, P2, -P2, P2, -P2, P2]
-        ]
-    )
+import param as param_class
+import matplotlib.pyplot as plt
+from plot_result import plot
 
 if __name__ == '__main__':
+    
+    deg2rad = math.pi/180.0
+    rad2deg = 180.0/math.pi
 
-    time_check = pytictoc.TicToc()
-    cm = math_lib.math_lib_wCasadi()
+    dt = 0.01
+    ur_max = 16.0*np.ones((6,1))
+    ur_min = np.zeros((6,1))
+    phidot_lb = deg2rad*-30.0
+    phidot_ub = deg2rad*30.0
+    m = 2.8
+    g = 9.81
+    mu_dot = 1.0
+    L = 0.258
+    kf = 0.016
+    tilt_ang = deg2rad*30
+    Am = np.zeros((6,6))
+    Am_inv = np.zeros((6,6))
 
-    """
-    Code validation using arbitrary input
-    """
+    param_ = param_class.Param(dt=dt, Am=Am, Am_inv=Am_inv, ur_max=ur_max, ur_min=ur_min,
+                               phidot_lb=phidot_lb, phidot_ub=phidot_ub, m=m, g=g, mu_dot=mu_dot, 
+                               L=L, kf=kf, tilt_ang=tilt_ang)
 
-    deg2rad = m.pi/180.0
-    rad2deg = 180.0/m.pi
+    reorient_plan_obj = reorient_planning.reorient_planning(param = param_)
+    param_.Am = reorient_plan_obj.set_Am(param_)
+    param_.Am_inv = np.linalg.inv(param_.Am)
 
-    # parameters
-    dt_ = 0.01
-    m_ = 2.8
-    g_ = 9.81
-    L_ = 0.258
-    kf_ = 0.016
-    tilt_ang_ = deg2rad*30.0
-    Am_ = set_Am(L_,kf_,tilt_ang_)
-    umax_ = 16.0*np.ones((6,1))
-    umin_ = np.zeros((6,1))
-    phidot_lb_ = deg2rad*-30.0
-    phidot_ub_ = deg2rad*30.0
+    tf = 20.0
+    x0 = np.zeros((4))
+    dt_ = param_.dt
+    Nsim = int(tf/dt_)
+    ts = np.linspace(0.0,tf,Nsim+1)
 
-    # input
-    R_ = np.eye(3)
-    phi_d_ = np.zeros((3,1))
-    u0 = 6.0*np.ones((6,1))
+    ### algorithm input: 
+    rho = 1
+    nParam = 12 # Rf, tau, phi, phi_d
+    param_val = np.zeros((Nsim,nParam))
+    Rf = np.zeros((Nsim,3))
+    tau = np.zeros((Nsim,3))
+    phi_d = np.zeros((Nsim,3))
+    phi = np.zeros((Nsim+1,3))
+    for k in range(Nsim):
+        if k < int(tf/(2.0*dt_)):
+            Rf[k,:] = np.array([rho*2.0/tf*ts[k]*param_.m*param_.g,0.0,param_.m*param_.g])
+        else:
+            Rf[k,:] = np.array([rho*param_.m*param_.g,0.0,param_.m*param_.g])
+        # Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
+        tau[k,:] = np.zeros((1,3))
 
-    reorient_plan = reorient_planning.reorient_planning(dt_, m_, g_, R_, phi_d_, u0,
-                                                        Am_, umax_, umin_, phidot_lb_, phidot_ub_)
-
-    tf = 1 # 1.0
-    ts = np.linspace(0.0,tf,int(tf/dt_))    
-    rho = 0.1
-
-    # data collection
-    compt_time = np.zeros(len(ts))
-    phi_r = np.zeros((3,len(ts)))
-    u = np.zeros((6,len(ts)))
-
-    for k in range(len(ts)):
-        print("step: ",k)
-        # control input in the world frame
-        # if k < int(tf/(2.0*dt_)):
-        #     Rf = np.array([[rho*2.0/tf*ts[k]*m_*g_],[0.0],[m_*g_]])
-        # else:
-        #     Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
-        Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
-
-        tau = np.zeros((3,1))
-        u[:,k] = (np.linalg.inv(Am_) @ np.vstack((R_.T@Rf,tau))).reshape(6,)
-
-        reorient_plan.set_variable(phi_d_,u[:,k])
-        reorient_plan.set_cost()
-        reorient_plan.set_constraints()                                                        
-
-        # time_check.tic()
-        t_start = time.time()
-        sol = reorient_plan.solve()
-        # compt_time = time_check.toc()
-        compt_time[k] = time.time() - t_start
-
-        phi_r[:,k] = sol[0].reshape(3,)
-        x_sol = sol[1]
-
-        # assumption: R = Rc
-        R_ = cm.Rzyx_numeric(np.array([phi_r[0,k].item(), phi_r[1,k].item(), phi_r[2,k].item()]))
-
-        print("solution: ", sol)
-
-    #%% code block for figures
-    # figure plot
-    plt1 = plt.figure()
-    plt.plot(ts,compt_time,color='black',marker='o',linewidth=2)
-    plt.title("computation time")
-    plt.xlabel("time [s]")
-    plt.ylabel("compt. time [s]")
-    plt.grid(True)
-    plt.savefig('figures/compt_time.png')
-
-    plt2 = plt.figure()
-    plt.subplot(2,1,1)
-    plt.plot(ts,rad2deg*phi_r[0,:],color='black',marker='o',linewidth=2)
-    # plt.xlabel("time [s]")
-    plt.ylabel("roll [deg]")
-    plt.grid(True)
-    plt.subplot(2,1,2)    
-    plt.plot(ts,rad2deg*phi_r[1,:],color='red',marker='o',linewidth=2)
-    plt.xlabel("time [s]")
-    plt.ylabel("pitch [deg]")
-    plt.grid(True)
-    plt.savefig('figures/roll,pitch.png')
-
-    plt3 = plt.figure()
-    for kp in range(6):
-        plt.subplot(3,2,kp+1)
-        plt.plot(ts,u[kp,:],color='black',marker='o',linewidth=2)
+    plt.figure()
+    for i in range(3):
+        plt.subplot(3,1,i+1)
+        plt.plot(ts,np.append(Rf[0,i], Rf[:,i]),color='black',marker='o',linewidth=2)
         plt.grid(True)
-        plt.ylabel("u"+str(kp+1))
-
-        if k == 5:
-            plt.xlabel("time [s]")
-    plt.savefig('figures/rotor thrust.png')
-
+        plt.xlabel("time [s]")
     plt.show()
-# %%
-"""
-- [해결] 뭔가 이상함.. constraint가 이상하게 들어갔나? 왜 roll이 같이 움직여
-- [TODO] 그리고 계산속도 드리게 느림.. sqp로 바꾸는 법 알아내야 함
-- [TODO] hoverability constraint relaxation 한것도 추가할 것
-- matlab에서는 계산한 데이터가 workspace에 저장되어 있어서 figure plot 하는 block 돌리면 바로 결과 얻었는데, 그 비슷한거 안되나?
-"""
+
+    ### CLOSED-LOOP SIMULATION
+    ocp_solver, integrator = reorient_plan_obj.init_ocp(x0,param_val[0,:])
+
+    # ocp_solver, integrator = reorient_plan_obj.set_ocp_param(param_val[0,:])
+    ### MAY NEED TO INITIALIZE! ###
+
+    nx = ocp_solver.acados_ocp.dims.nx
+    nu = ocp_solver.acados_ocp.dims.nu
+    N = ocp_solver.acados_ocp.dims.N
+
+    simX = np.ndarray((Nsim+1,nx))
+    simU = np.ndarray((Nsim,nu))
+    t_compt = np.zeros((Nsim))
+    simX[0,:] = x0
+
+    for k in range(Nsim):
+        print("step: ", k)
+
+        phi[k,0:2] = simX[k,0:2] # Assumption: phi_r = phi
+        phi[k,2] = phi_d[k,2]
+
+        param_val[k,:] = np.hstack((Rf[k,:], tau[k,:], phi[k,:], phi_d[k,:]))
+        
+        for kk in range(N+1):
+            ocp_solver.set(kk, "p", param_val[k,:])
+        # ocp_solver, integrator = reorient_plan_obj.set_ocp_param(param_val[k,:])
+
+        simU[k,:] = ocp_solver.solve_for_x0(x0_bar = simX[k,:])
+        t_compt[k] = ocp_solver.get_stats('time_tot')
+
+        # simulate system
+        simX[k+1,:] = integrator.simulate(x=simX[k,:],u=simU[k,:]) ## FROM HERE!
+    
+    plot(ts, simU, simX, t_compt, latexify=False, plt_show=True )
+
+
+    ### TODO: ocp_solver.set(i, "p", p_0)이거로 세팅하면 됨!!! 이러면 solver는 for loop 전에 한번만 정의하면 되는 거임

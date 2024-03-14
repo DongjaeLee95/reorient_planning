@@ -3,32 +3,31 @@ import numpy as np
 # import math
 # import pytictoc
 import math_lib
+import math
 import sys
 sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
-from acados_template import AcadosOcp, AcadosOcpSolver
+from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel, AcadosSimSolver
 import traceback
-# from casadi import *
+from casadi import SX, vertcat, blockcat, power, dot, simplify
+import param as param_class
 
-"""
-# opti variable: x = [alpha, beta, eps1 ,eps2]
-# input: 
-#   x_prev      : previous opti. variable
-#   phi_r_prev  : previous phi_r
+""" OCP formulation
+# state variable: x = [phi_r1, phi_r2, eps1, eps2]
+# input variable: u = [alpha, beta, eps1dot ,eps2dot]
+# algorithm input: 
+#   x_prev      : previous step x
 #   phi_d       : unmodified orientation reference
 #   R           : rotation matrix
-#   u           : rotor thrust, u=[u1,...,u6]
+#   ur          : rotor thrust, ur=[ur1,...,ur6]
 
 # output:
-#   phi_r       : modified orientation reference
-#   alpha       : \dot{phi_r(0)}
-#   beta        : \dot{phi_r(1)}
-#   eps1,2
+#   x,u
 
 # parameter:
-#   DT          : discrete time interval
+#   dt          : discrete time interval
 #   Am          : ctrl allocation matrix
-#   umax        : rotor thurst maximum   
-#   umin        : rotor thrust minimum
+#   ur_max      : rotor thurst maximum   
+#   ur_min      : rotor thrust minimum
 #   phidot_lb   : lower bound of alpha, beta
 #   phidot_ub   : upper bound of alpha, beta
 #   m           : mass of the multirotor
@@ -38,137 +37,200 @@ import traceback
 """
 
 class reorient_planning:
-    def __init__(self, dt=0.01, m_=1.0, g_=9.81, R=np.eye(3), phi_d=np.zeros((3,1)), u=np.zeros((6,1)),
-                 Am=np.ones((6,6)), umax=np.ones((6,1)), umin=np.zeros((6,1)),
-                 phidot_lb=-1.0, phidot_ub=1.0):
-        self.dt_ = dt
-        self.m_ = m_
-        self.g_ = g_
-        self.R_ = R
-        self.Am_ = Am
-        self.umax = umax
-        self.umin = umin
-        self.phidot_lb = phidot_lb
-        self.phidot_ub = phidot_ub
-        self.mu_dot = 3.0*self.dt_
-        self.mu_ddot = 1.0
+    def __init__(self, param):
+        # self.param = param_class.Param()
+        self.param = param
 
-        self.cm = math_lib.math_lib_wCasadi()
-        self.Am_inv = np.linalg.inv(self.Am_)
+        self.param.Am = self.set_Am(param)
+        self.param.Am_inv = np.linalg.inv(self.param.Am)
 
-        # input
-        self.x_prev = np.zeros((4,1))
-        self.phi_r_prev = phi_d
-        self.phi_d = phi_d
-        self.u = u
+        self.ocp = AcadosOcp()
 
-        # ouput
-        self.phi_r = np.zeros((3,1))
+    def set_Am(self,param): 
+        L = param.L
+        kf = param.kf
+        tilt_ang = param.tilt_ang
+        ca = math.cos(tilt_ang)
+        sa = math.sin(tilt_ang)
 
-        # optimization problem
-        self.opti = Opti()
-        self.x = self.opti.variable(4,1)
-        self.alpha = self.x[0]
-        self.beta = self.x[1]
-        self.eps1 = self.x[2]
-        self.eps2 = self.x[3]
-   
-        self.J = 0.0
+        P1 = L*ca - kf*sa
+        P2 = L*sa + kf*ca
+        return np.array(
+            [ [-0.5*sa, -0.5*sa, sa, -0.5*sa, -0.5*sa, sa],
+            [-math.sqrt(3)/2*sa, math.sqrt(3)/2*sa, 0, -math.sqrt(3)/2*sa, math.sqrt(3)/2*sa, 0],
+            [ca, ca, ca, ca, ca, ca],
+            [-0.5*P1, 0.5*P1, P1, 0.5*P1, -0.5*P1, -P1],
+            [-math.sqrt(3)/2*P1, -math.sqrt(3)/2*P1, 0, math.sqrt(3)/2*P1, math.sqrt(3)/2*P1, 0],
+            [-P2, P2, -P2, P2, -P2, P2]
+            ]
+        )
 
-        # p_opts = {"expand":True}
-        p_opts = {"expand":True, "print_iteration": False}
+    # def set_ocp_param(self,param_val):
+    #     self.ocp.parameter_values = param_val # [] Rf, tau, phi, phi_d
 
-        # self.opti.solver("ipopt",p_opts)
-        self.opti.solver("snopt",p_opts)
+    #     solver_json = 'acados_ocp_' + self.ocp.model.name + '.json'
+    #     acados_ocp_solver = AcadosOcpSolver(self.ocp, json_file = solver_json)
+    #     acados_integrator = AcadosSimSolver(self.ocp, json_file = solver_json)
 
-    def set_variable(self,phi_d,u):
-        self.phi_d = phi_d
-        self.u = u
-        self.phi_r_casadi = self.phi_r_prev + self.dt_*vertcat(self.alpha,self.beta,0.0)
-        # self.phi_r_casadi[0] = self.phi_r_prev[0] + self.dt_*self.alpha
-        # self.phi_r_casadi[1] = self.phi_r_prev[1] + self.dt_*self.beta
-        # self.phi_r_casadi[2] = self.phi_r_prev[2]
+    #     return acados_ocp_solver, acados_integrator
 
-    def set_cost(self):
-        J_phi = (self.phi_r - self.phi_d).T@(self.phi_r - self.phi_d)
+    def init_ocp(self,x0,param_val): # called only once
+        # parameter handle
+        param_ = self.param
 
-        Rc = self.cm.Rzyx_casadi(self.phi_r_casadi)
-        # ustar = self.Am_inv @ ( np.block([[Rc.T@self.R_, np.zeros((3,3))], [np.zeros((3,3)), np.eye(3)]]) @ self.Am_ @ self.u )
-        ustar = self.Am_inv @ ( blockcat(Rc.T@self.R_, np.zeros((3,3)), np.zeros((3,3)), np.eye(3)) @ self.Am_ @ self.u )
+        self.ocp.model = self.ocp_model()
+        self.ocp.dims.N = 1
+
+        ############### CONSTRAINT ###############
+        deg2rad = math.pi/180.0
+        x1 = deg2rad*26.3819
+        y1 = deg2rad*14.3216
+        y2 = deg2rad*-29.6985
+
+        # 1. input lower & upper bounds
+        self.ocp.constraints.lbu = np.array([[param_.phidot_lb],[param_.phidot_lb]]).flatten()
+        self.ocp.constraints.ubu = np.array([[param_.phidot_ub],[param_.phidot_ub]]).flatten()
+        self.ocp.constraints.idxbu = np.array([0, 1])
+
+        # 2. hoverability cosntraint approximation
+        self.ocp.constraints.C_e = np.array([[0.0, 1.0, 0.0, 0.0],
+                                        [(y1-y2)/x1, -1.0, 0.0, 0.0], 
+                                        [-(y1-y2)/x1, -1.0, 0.0, 0.0]])
+        self.ocp.constraints.lg_e = np.array([[y2], [-(2.0*y1-y2)], [-(2.0*y1-y2)]]).flatten()
+        self.ocp.constraints.ug_e = np.array([[y1], [-y2], [-y2]]).flatten()
+        # 3. rotor thrust min & max constraint
+        self.ocp.constraints.lh_e = param_.ur_min.flatten()
+        self.ocp.constraints.uh_e = param_.ur_max.flatten()
+
+        # 4. initial value
+        self.ocp.constraints.x0 = x0
+
+        ############### COST OPTION ###############
+        self.ocp.cost.cost_type = 'EXTERNAL'
+        self.ocp.cost.cost_type_e = 'EXTERNAL'
+
+        ############### SOLVER OPTION ###############
+        self.ocp.solver_options.qp_solver = 'FULL_CONDENSING_QPOASES' # FULL_CONDENSING_QPOASES
+            # PARTIAL_CONDENSING_HPIPM, FULL_CONDENSING_QPOASES, FULL_CONDENSING_HPIPM,
+            # PARTIAL_CONDENSING_QPDUNES, PARTIAL_CONDENSING_OSQP, FULL_CONDENSING_DAQP
+        # ocp.solver_options.hessian_approx = 'GAUSS_NEWTON' # 'GAUSS_NEWTON', 'EXACT'
+        self.ocp.solver_options.ext_cost_num_hess = 0 # EXACT hessian if 0 
+        self.ocp.solver_options.integrator_type = 'ERK' # ERK (Euler), IRK, GNSF, DISCRETE
+        # ocp.solver_options.print_level = 1
+        self.ocp.solver_options.nlp_solver_type = 'SQP' # SQP_RTI, SQP
+        self.ocp.solver_options.tf = self.param.dt
+
+        self.ocp.solver_options.sim_method_newton_iter = 10
+        self.ocp.solver_options.qp_solver_cond_N = 1
+
+        self.ocp.parameter_values = param_val # [] Rf, tau, phi, phi_d
+
+        solver_json = 'acados_ocp_' + self.ocp.model.name + '.json'
+        acados_ocp_solver = AcadosOcpSolver(self.ocp, json_file = solver_json)
+        acados_integrator = AcadosSimSolver(self.ocp, json_file = solver_json)
+
+        return acados_ocp_solver, acados_integrator
+
+    def ocp_model(self) -> AcadosModel:
+
+        model_name = 'reorient_model'
+
+        # set up states & controls
+        phi_r1 = SX.sym('phi_r1')
+        phi_r2 = SX.sym('phi_r2')
+        eps1 = SX.sym('eps1')
+        eps2 = SX.sym('eps2')
+
+        x = vertcat(phi_r1,phi_r2,eps1,eps2)
+
+        alpha = SX.sym('alpha')
+        beta = SX.sym('beta')
+        deps1 = SX.sym('deps1')
+        deps2 = SX.sym('deps2')
+
+        u = vertcat(alpha,beta,deps1,deps2)
+
+        # xdot
+        phi_r1_dot = SX.sym('phi_r1_dot')
+        phi_r2_dot = SX.sym('phi_r2_dot')
+        eps1_dot = SX.sym('eps1_dot') 
+        eps2_dot = SX.sym('eps2_dot')
+
+        xdot = vertcat(phi_r1_dot,phi_r2_dot,eps1_dot,eps2_dot)
+
+        # dynamics
+        f_expl = vertcat(alpha, beta, deps1, deps2)
+        f_impl = xdot - f_expl
+
+        # set up parameters
+        rf1 = SX.sym("rf1") # force 1
+        rf2 = SX.sym("rf2") # force 2
+        rf3 = SX.sym("rf3") # force 3
+        tau1 = SX.sym("tau1") # torque 1
+        tau2 = SX.sym("tau2") # torque 2
+        tau3 = SX.sym("tau3") # torque 3
+        phi_d1 = SX.sym("phi_d1") # phi_d1
+        phi_d2 = SX.sym("phi_d2") # phi_d2
+        phi_d3 = SX.sym("phi_d3") # phi_d3
+        phi1 = SX.sym("phi1") # phi1
+        phi2 = SX.sym("phi2") # phi2
+        phi3 = SX.sym("phi3") # phi3
+        p = vertcat(rf1,rf2,rf3,
+                    tau1,tau2,tau3,
+                    phi1,phi2,phi3,
+                    phi_d1,phi_d2,phi_d3)
+
+        # nonlinear (terminal) constraints
+        Rf = vertcat(rf1,rf2,rf3)
+        tau = vertcat(tau1,tau2,tau3)
+        phi = vertcat(phi1,phi2,phi3)
+        cm = math_lib.math_lib_wCasadi()
+        R = cm.Rzyx_casadi(phi)
+
+        phi_r = vertcat(phi_r1,phi_r2,phi_d3)
+        Rc = cm.Rzyx_casadi(phi_r)
+        Am_inv = self.param.Am_inv
+        ustar_eps = Am_inv @ ( vertcat( (Rc.T @ (Rf - vertcat(eps1, eps2, 0.0))), tau ) )
+        con_h_expr_e = ustar_eps
+
+        ############### COST ###############
+        param_ = self.param
+        u_casadi = (param_.Am_inv @ vertcat(R.T@Rf, tau))
+
+        # J_phi: orientation error w.r.t. phi_d
+        phi_re = vertcat(phi_r1-phi_d1,phi_r2-phi_d2,0.0)
+        J_phi = dot(phi_re,phi_re)
+
+        # J_u: avoid rotor saturation
+        ustar = param_.Am_inv @ ( blockcat(Rc.T@R, np.zeros((3,3)), np.zeros((3,3)), np.eye(3)) @ param_.Am @ u_casadi )
 
         temp = 0
         for k in range(6):
-            temp = temp + power( (2.0/(self.umax[k] - self.umin[k])) * (ustar[k] - (self.umin[k] + self.umax[k])/2.0), 6)
+            temp = temp + power( (2.0/(param_.ur_max[k] - param_.ur_min[k])) * (ustar[k] - (param_.ur_min[k] + param_.ur_max[k])/2.0), 6)
 
         J_u = 1.0/6.0*temp
+        # J_eps: minimize slack variable epsilon
+        J_eps = power(eps1,2) + power(eps2,2)
+        
+        # J_reg_phidot: phi_r variation regulation
+        J_reg_phidot = param_.mu_dot*( power(alpha,2) + power(beta,2))
 
-        J_eps = power(self.eps1,2) + power(self.eps2,2)
+        J = J_reg_phidot            # running cost
+        J_e = J_phi + J_u + J_eps   # terminal cost
 
-        alpha_prev = self.x_prev[0]
-        beta_prev = self.x_prev[1]
+        # set model
+        model = AcadosModel()
 
-        J_reg_phidot = self.mu_dot*( power(self.alpha,2) + power(self.beta,2))
-        J_reg_phiddot = self.mu_ddot*power((alpha_prev - self.alpha),2) + power((beta_prev - self.beta),2)
+        model.f_impl_expr = f_impl
+        model.f_expl_expr = f_expl
+        model.x = x
+        model.xdot = xdot
+        model.u = u
+        model.p = p
+        model.name = model_name
+        model.con_h_expr_e = con_h_expr_e
+        # set cost
+        model.cost_expr_ext_cost = J
+        model.cost_expr_ext_cost_e = J_e
 
-        self.J = J_phi + J_u + J_eps + J_reg_phidot + J_reg_phiddot
-
-        self.opti.minimize(simplify(self.J))
-                 
-    def set_constraints(self):
-        self.opti.subject_to()
-
-        # ustar_eps
-        Rc = self.cm.Rzyx_casadi(self.phi_r_casadi)
-        Au = self.Am_ @ self.u
-        f = Au[0:3]
-        tau = Au[3:6]
-        ustar_eps = self.Am_inv @ ( vertcat( (Rc.T @ (self.R_@f - vertcat(self.eps1, self.eps2, 0.0))), tau ) )
-
-        # uhover
-        e3 = np.zeros((3,1))
-        e3[2] = 1.0
-        uhover = self.m_ * self.g_ * self.Am_inv @ (vertcat( Rc.T @ e3, np.zeros((3,1))))
-
-        # umin <= ustar_eps <= umax
-        # umin <= uhover <= umax
-        for k in range(6):
-            temp_c1 = (ustar_eps[k] - self.umax[k])/(self.umax[k] - self.umin[k])
-            temp_c2 = (self.umin[k] - ustar_eps[k])/(self.umax[k] - self.umin[k])
-            temp_c3 = (uhover[k] - self.umax[k])/(self.umax[k] - self.umin[k])
-            temp_c4 = (self.umin[k] - uhover[k])/(self.umax[k] - self.umin[k])
-            self.opti.subject_to( simplify(temp_c1) <= 0 )
-            self.opti.subject_to( simplify(temp_c2) <= 0 )
-            self.opti.subject_to( simplify(temp_c3) <= 0 )
-            self.opti.subject_to( simplify(temp_c4) <= 0 )
-
-        # alpha, beta, eps1, eps2 lower & upper bound
-        self.opti.subject_to( self.opti.bounded( self.phidot_lb, self.alpha, self.phidot_ub ) )
-        self.opti.subject_to( self.opti.bounded( self.phidot_lb, self.beta, self.phidot_ub ) )
-        self.opti.subject_to( self.opti.bounded( 0.0, self.eps1, np.inf ) )
-        self.opti.subject_to( self.opti.bounded( 0.0, self.eps2, np.inf ) )
- 
-    def solve(self):
-        self.opti.set_initial(self.x,self.x_prev)
-
-        sol_numeric = np.zeros(4)
-        sol = self.opti.solve()
-        sol_numeric = sol.value(self.x)
-        try:
-            sol = self.opti.solve()
-            sol_numeric = sol.value(self.x)
-            print("sol_numeric: ", sol_numeric)
-        except:
-            sys.stdout = open('solver_output.txt', 'w')
-            traceback.print_exc(file=sys.stdout)
-            sys.stdout.close()
-            print("optimization failed")
-
-        # update previous values for next time use
-        self.phi_r[0] = self.phi_r_prev[0] + self.dt_*sol_numeric[0]
-        self.phi_r[1] = self.phi_r_prev[1] + self.dt_*sol_numeric[1]
-        self.phi_r[2] = self.phi_d[2]
-
-        self.x_prev = sol_numeric
-        self.phi_r_prev = self.phi_r
-
-        return np.array([self.phi_r, sol.value(self.x)])
+        return model

@@ -36,39 +36,39 @@
 
 # model
 MODEL_SRC=
-MODEL_SRC+= zyxEuler_kinematics_model/zyxEuler_kinematics_expl_ode_fun.c
-MODEL_SRC+= zyxEuler_kinematics_model/zyxEuler_kinematics_expl_vde_forw.c
-MODEL_SRC+= zyxEuler_kinematics_model/zyxEuler_kinematics_expl_vde_adj.c
+MODEL_SRC+= reorient_model_model/reorient_model_expl_ode_fun.c
+MODEL_SRC+= reorient_model_model/reorient_model_expl_vde_forw.c
+MODEL_SRC+= reorient_model_model/reorient_model_expl_vde_adj.c
 MODEL_OBJ := $(MODEL_SRC:.c=.o)
 
 # optimal control problem - mostly CasADi exports
 OCP_SRC=
-OCP_SRC+= zyxEuler_kinematics_constraints/zyxEuler_kinematics_constr_h_e_fun_jac_uxt_zt.c
-OCP_SRC+= zyxEuler_kinematics_constraints/zyxEuler_kinematics_constr_h_e_fun.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_0_fun.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_0_fun_jac.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_0_fun_jac_hess.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_fun.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_fun_jac.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_fun_jac_hess.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_e_fun.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_e_fun_jac.c
-OCP_SRC+= zyxEuler_kinematics_cost/zyxEuler_kinematics_cost_ext_cost_e_fun_jac_hess.c
+OCP_SRC+= reorient_model_constraints/reorient_model_constr_h_e_fun_jac_uxt_zt.c
+OCP_SRC+= reorient_model_constraints/reorient_model_constr_h_e_fun.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_0_fun.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_0_fun_jac.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_0_fun_jac_hess.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_fun.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_fun_jac.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_fun_jac_hess.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_e_fun.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_e_fun_jac.c
+OCP_SRC+= reorient_model_cost/reorient_model_cost_ext_cost_e_fun_jac_hess.c
 
-OCP_SRC+= acados_solver_zyxEuler_kinematics.c
+OCP_SRC+= acados_solver_reorient_model.c
 OCP_OBJ := $(OCP_SRC:.c=.o)
 
 # for sim solver
-SIM_SRC= acados_sim_solver_zyxEuler_kinematics.c
+SIM_SRC= acados_sim_solver_reorient_model.c
 SIM_OBJ := $(SIM_SRC:.c=.o)
 
 # for target example
-EX_SRC= main_zyxEuler_kinematics.c
+EX_SRC= main_reorient_model.c
 EX_OBJ := $(EX_SRC:.c=.o)
 EX_EXE := $(EX_SRC:.c=)
 
 # for target example_sim
-EX_SIM_SRC= main_sim_zyxEuler_kinematics.c
+EX_SIM_SRC= main_sim_reorient_model.c
 EX_SIM_OBJ := $(EX_SIM_SRC:.c=.o)
 EX_SIM_EXE := $(EX_SIM_SRC:.c=)
 
@@ -85,10 +85,12 @@ INCLUDE_PATH = /home/dj/acados/include
 LIB_PATH = /home/dj/acados/lib
 
 # preprocessor flags for make's implicit rules
+CPPFLAGS += -DACADOS_WITH_QPOASES
 CPPFLAGS+= -I$(INCLUDE_PATH)
 CPPFLAGS+= -I$(INCLUDE_PATH)/acados
 CPPFLAGS+= -I$(INCLUDE_PATH)/blasfeo/include
 CPPFLAGS+= -I$(INCLUDE_PATH)/hpipm/include
+CPPFLAGS+= -I $(INCLUDE_PATH)/qpOASES_e/
 
 
 # define the c-compiler flags for make's implicit rules
@@ -104,11 +106,11 @@ LDLIBS+= -lacados
 LDLIBS+= -lhpipm
 LDLIBS+= -lblasfeo
 LDLIBS+= -lm
-LDLIBS+= 
+LDLIBS+= -lqpOASES_e
 
 # libraries
-LIBACADOS_SOLVER=libacados_solver_zyxEuler_kinematics.so
-LIBACADOS_OCP_SOLVER=libacados_ocp_solver_zyxEuler_kinematics.so
+LIBACADOS_SOLVER=libacados_solver_reorient_model.so
+LIBACADOS_OCP_SOLVER=libacados_ocp_solver_reorient_model.so
 LIBACADOS_SIM_SOLVER=lib$(SIM_SRC:.c=.so)
 
 # virtual targets
@@ -161,7 +163,7 @@ ocp_cython: ocp_cython_o
 	-o acados_ocp_solver_pyx.so \
 	-Wl,-rpath=$(LIB_PATH) \
 	acados_ocp_solver_pyx.o \
-	$(abspath .)/libacados_ocp_solver_zyxEuler_kinematics.so \
+	$(abspath .)/libacados_ocp_solver_reorient_model.so \
 	$(LDFLAGS) $(LDLIBS)
 
 # Sim Cython targets
@@ -188,7 +190,7 @@ sim_cython: sim_cython_o
 	-o acados_sim_solver_pyx.so \
 	-Wl,-rpath=$(LIB_PATH) \
 	acados_sim_solver_pyx.o \
-	$(abspath .)/libacados_sim_solver_zyxEuler_kinematics.so \
+	$(abspath .)/libacados_sim_solver_reorient_model.so \
 	$(LDFLAGS) $(LDLIBS)
 
 clean:
@@ -201,13 +203,13 @@ clean_ocp_shared_lib:
 	$(RM) $(OCP_OBJ)
 
 clean_ocp_cython:
-	$(RM) libacados_ocp_solver_zyxEuler_kinematics.so
-	$(RM) acados_solver_zyxEuler_kinematics.o
+	$(RM) libacados_ocp_solver_reorient_model.so
+	$(RM) acados_solver_reorient_model.o
 	$(RM) acados_ocp_solver_pyx.so
 	$(RM) acados_ocp_solver_pyx.o
 
 clean_sim_cython:
-	$(RM) libacados_sim_solver_zyxEuler_kinematics.so
-	$(RM) acados_sim_solver_zyxEuler_kinematics.o
+	$(RM) libacados_sim_solver_reorient_model.so
+	$(RM) acados_sim_solver_reorient_model.o
 	$(RM) acados_sim_solver_pyx.so
 	$(RM) acados_sim_solver_pyx.o

@@ -101,7 +101,9 @@ def main():
     ocp = AcadosOcp()
     ocp.model = model
 
-    Tf = 0.01
+    DT = 0.01
+    tf = 1.0
+    ts = np.linspace(0.0,tf,int(tf/DT))
     nx = model.x.size()[0]
     nu = model.u.size()[0]
     N = 1
@@ -123,42 +125,9 @@ def main():
     umin_ = np.zeros((6,1))
     phidot_lb_ = deg2rad*-30.0
     phidot_ub_ = deg2rad*30.0
-    mu_dot_ = 3.0*Tf
+    mu_dot_ = 3.0*DT
 
     phi_d = np.zeros((3,1))
-    R_ = np.eye(3)
-
-    rho = 0.1
-    Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
-    tau = np.zeros((3,1))
-    u_numeric = (np.linalg.inv(Am_) @ np.vstack((R_.T@Rf,tau))).reshape(6,)
-
-    # variable defintion
-    phi_r = vertcat(phi_r1,phi_r2,phi_d[2])
-    phi_re = vertcat(phi_r1-phi_d[0],phi_r2-phi_d[1],0.0)
-    cm = math_lib.math_lib_wCasadi()
-
-    # set cost
-    J_phi = dot(phi_re,phi_re)
-
-    Rc = cm.Rzyx_casadi(phi_r)
-    ustar = Am_inv @ ( blockcat(Rc.T@R_, np.zeros((3,3)), np.zeros((3,3)), np.eye(3)) @ Am_ @ u_numeric )
-
-    temp = 0
-    for k in range(6):
-        temp = temp + power( (2.0/(umax_[k] - umin_[k])) * (ustar[k] - (umin_[k] + umax_[k])/2.0), 6)
-
-    J_u = 1.0/6.0*temp
-    J_eps = power(eps1,2) + power(eps2,2)
-    J_reg_phidot = mu_dot_*( power(alpha,2) + power(beta,2))
-
-    J =  J_eps + J_reg_phidot #+ J_reg_phiddot
-    J_e = J_u + J_phi
-
-    ocp.cost.cost_type = 'EXTERNAL'
-    ocp.cost.cost_type_e = 'EXTERNAL'
-    ocp.model.cost_expr_ext_cost = J
-    ocp.model.cost_expr_ext_cost_e = J_e
 
     # set constraints
     x1 = deg2rad*26.3819
@@ -180,9 +149,6 @@ def main():
 
     ocp.constraints.x0 = np.array([0.0, 0.0, 0.0, 0.0]) # plug in previous value!
 
-    ####### external signal into ocp (e.g. force,torque from the controller!)
-    ocp.parameter_values = np.array([Rf[0], Rf[1], Rf[2], tau[0], tau[1], tau[2]])
-
     ####### set options
     ocp.solver_options.qp_solver = 'PARTIAL_CONDENSING_HPIPM' # FULL_CONDENSING_QPOASES
     # PARTIAL_CONDENSING_HPIPM, FULL_CONDENSING_QPOASES, FULL_CONDENSING_HPIPM,
@@ -192,14 +158,70 @@ def main():
     ocp.solver_options.integrator_type = 'ERK' # ERK (Euler), IRK, GNSF, DISCRETE
     # ocp.solver_options.print_level = 1
     ocp.solver_options.nlp_solver_type = 'SQP' # SQP_RTI, SQP
-    ocp.solver_options.tf = Tf
+    ocp.solver_options.tf = DT
 
-    ocp_solver = AcadosOcpSolver(ocp, json_file = 'acados_ocp.json')
-    simX = np.ndarray((N+1, nx))
-    simU = np.ndarray((N, nu))
+    ##### Parameters that change during simulation
+    ####### external signal into ocp (e.g. force,torque from the controller!)
 
-    status = ocp_solver.solve()
-    ocp_solver.print_statistics() # encapsulates: stat = ocp_solver.get_stats("statistics")
+    # data collection
+    compt_time_c = np.zeros(len(ts))
+    phi_r_c = np.zeros((3,len(ts)))
+    u_c = np.zeros((6,len(ts)))
+
+    R_ = np.eye(3)
+    cm = math_lib.math_lib_wCasadi()
+    rho = 0.1
+    for k in range(len(ts)):
+        print("step: ",k)
+        # control input in the world frame
+        if k < int(tf/(2.0*DT)):
+            Rf = np.array([[rho*2.0/tf*ts[k]*m_*g_],[0.0],[m_*g_]])
+        else:
+            Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
+        # Rf = np.array([[rho*m_*g_],[0.0],[m_*g_]])
+        tau = np.zeros((3,1))
+
+        ocp.parameter_values = np.array([Rf[0], Rf[1], Rf[2], tau[0], tau[1], tau[2]])
+        
+        u_numeric = (np.linalg.inv(Am_) @ np.vstack((R_.T@Rf,tau))).reshape(6,)
+        u_c[:,k] = u_numeric
+
+        # variable defintion
+        phi_r = vertcat(phi_r1,phi_r2,phi_d[2])
+        phi_re = vertcat(phi_r1-phi_d[0],phi_r2-phi_d[1],0.0)
+
+        # set cost
+        J_phi = dot(phi_re,phi_re)
+
+        Rc = cm.Rzyx_casadi(phi_r)
+        ustar = Am_inv @ ( blockcat(Rc.T@R_, np.zeros((3,3)), np.zeros((3,3)), np.eye(3)) @ Am_ @ u_numeric )
+
+        temp = 0
+        for k in range(6):
+            temp = temp + power( (2.0/(umax_[k] - umin_[k])) * (ustar[k] - (umin_[k] + umax_[k])/2.0), 6)
+
+        J_u = 1.0/6.0*temp
+        J_eps = power(eps1,2) + power(eps2,2)
+        J_reg_phidot = mu_dot_*( power(alpha,2) + power(beta,2))
+
+        J =  J_eps + J_reg_phidot #+ J_reg_phiddot
+        J_e = J_u + J_phi
+
+        ocp.cost.cost_type = 'EXTERNAL'
+        ocp.cost.cost_type_e = 'EXTERNAL'
+        ocp.model.cost_expr_ext_cost = J
+        ocp.model.cost_expr_ext_cost_e = J_e
+
+        ocp_solver = AcadosOcpSolver(ocp, json_file = 'acados_ocp.json')
+        simX = np.ndarray((N+1, nx))
+        simU = np.ndarray((N, nu))
+
+        status = ocp_solver.solve()
+        ocp_solver.print_statistics() # encapsulates: stat = ocp_solver.get_stats("statistics")
+
+        # variable update
+        
+
 
     if status != 0:
             raise Exception(f'acados returned status {status}.')
