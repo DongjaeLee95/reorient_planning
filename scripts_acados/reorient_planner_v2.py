@@ -41,7 +41,7 @@ Modification from the original code
 #   mu_ddot     : J_reg_phiddot weight
 """
 
-class reorient_planning:
+class reorient_planner:
     def __init__(self, param):
         # self.param = param_class.Param()
         self.param = param
@@ -78,6 +78,14 @@ class reorient_planning:
     #     acados_integrator = AcadosSimSolver(self.ocp, json_file = solver_json)
 
     #     return acados_ocp_solver, acados_integrator
+
+    def find_ustar(self,phi_r,Rf,tau):
+        param_ = self.param
+        cm = math_lib.math_lib_wCasadi()
+
+        Rc = cm.Rzyx_numeric(phi_r)
+        ustar = param_.Am_inv @ ( np.vstack(( (Rc.T @ Rf), tau )) )
+        return ustar
 
     def init_ocp(self,x0,param_val): # called only once
         # parameter handle

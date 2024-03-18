@@ -27,3 +27,20 @@ class math_lib_wCasadi:
     def Rzyx_numeric(self, angs):
         return self.Rz_numeric(angs[2]) @ self.Ry_numeric(angs[1]) @ self.Rx_numeric(angs[0])
 
+    def q2R_numeric(self, quat):
+        quat_scalar = quat[0]
+        quat_vector = quat[1:]
+        quat_vector_outer = np.outer(quat_vector,quat_vector)
+        quat_vector_hat = self.Hat_numeric(quat_vector)
+        out_rot = (quat_scalar**2 - quat_vector.T@quat_vector) * np.eye(3) + 2 * quat_vector_outer + 2 * quat_scalar * quat_vector_hat
+        return out_rot
+
+    def Hat_numeric(self, vec):
+        return np.array([ [0, -vec[2], vec[1]], [vec[2], 0, -vec[0]], [-vec[1], vec[0], 0]])
+
+    def R2rpy_numeric(self, R):
+        r = m.atan2(R[2,1], R[2,2])
+        p = m.atan2(-R[2,0], m.sqrt( abs(R[2,1]*R[2,1] + R[2,2]*R[2,2]) ))
+        y = m.atan2(R[1,0], R[0,0])
+
+        return np.array([r, p, y])

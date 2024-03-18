@@ -1,7 +1,7 @@
 {
     "acados_include_path": "/home/dj/acados/include",
     "acados_lib_path": "/home/dj/acados/lib",
-    "code_export_directory": "/home/dj/catkin_ws/src/reorient_planning/c_generated_code",
+    "code_export_directory": "/home/dj/catkin_ws/src/reorient_planning/scripts_acados/c_generated_code",
     "constraints": {
         "C": [],
         "C_e": [

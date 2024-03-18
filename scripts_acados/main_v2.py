@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 import math
-import reorient_planning_v2
+import reorient_planner_v2
 import math_lib
 import pytictoc
 import time
@@ -33,7 +33,7 @@ if __name__ == '__main__':
                                phidot_lb=phidot_lb, phidot_ub=phidot_ub, m=m, g=g, mu_dot=mu_dot, 
                                L=L, kf=kf, tilt_ang=tilt_ang)
 
-    reorient_plan_obj = reorient_planning_v2.reorient_planning(param = param_)
+    reorient_plan_obj = reorient_planner_v2.reorient_planner(param = param_)
     param_.Am = reorient_plan_obj.set_Am(param_)
     param_.Am_inv = np.linalg.inv(param_.Am)
 

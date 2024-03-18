@@ -36,7 +36,7 @@ import param as param_class
 #   mu_ddot     : J_reg_phiddot weight
 """
 
-class reorient_planning:
+class reorient_planner:
     def __init__(self, param):
         # self.param = param_class.Param()
         self.param = param

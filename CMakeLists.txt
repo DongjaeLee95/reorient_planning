@@ -7,27 +7,33 @@ find_package(catkin REQUIRED COMPONENTS
     std_msgs
     nav_msgs
     geometry_msgs
+    message_generation
 )
-find_package(Eigen3 REQUIRED)
+# find_package(Eigen3 REQUIRED)
 
 set(CMAKE_BUILD_TYPE "Release")
 # set(CMAKE_BUILD_TYPE "Debug")
 
-set(Eigen3_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIR})
+# set(Eigen3_INCLUDE_DIRS ${EIGEN3_INCLUDE_DIR})
+
+add_message_files(
+  FILES
+  compt_time.msg
+  opti_variable.msg
+)
+
+# add_service_files(
+#   FILES
+#   CommandInt.srv
+# )
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
 
 catkin_package(
-    DEPENDS Eigen3
-    INCLUDE_DIRS include src
+    # DEPENDS Eigen3
+    # INCLUDE_DIRS include src
+    CATKIN_DEPENDS message_runtime
 )
-
-include_directories( include src
-                     ${catkin_INCLUDE_DIRS}
-                     ${Eigen3_INCLUDE_DIRS} 
-)
-
-# set(src_multi_pid_xy ${src_multi_pid_xy} src/multirotor/pid/pid_xy_controller.cpp)
-# set(src_multi_pid_xy ${src_multi_pid_xy} src/multirotor/pid/pid_xy_main.cpp)
-
-# # multirotor controller & simulator
-# add_executable( pid_xy_ctrller ${src_multi_pid_xy} )
-# target_link_libraries( pid_xy_ctrller Eigen3::Eigen ${catkin_LIBRARIES} ${EIGEN_LIBRARIES})
