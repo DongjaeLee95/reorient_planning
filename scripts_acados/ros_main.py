@@ -9,7 +9,8 @@ import param as param_class
 # ros-related
 import rospy
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import WrenchStamped as Wrench
+# from geometry_msgs.msg import WrenchStamped as Wrench
+from ctrller_msgs.msg import RotorThrust
 from ctrller_msgs.msg import PoseTarget as PoseSp
 from ctrller_msgs.msg import Pwm as rotorThurst
 from reorient_planning.msg import compt_time
@@ -31,32 +32,40 @@ publish:
 
 # GLOBAL VARIABLES
 ros_rate_g = 100
-quat_g = np.zeros((4,1))
+
 R_g = np.eye(3)
 phi_g = np.zeros((3,1))
-force_g = np.zeros((3,1))
-torque_g = np.zeros((3,1))
+# force_g = np.zeros((3,1))
+# torque_g = np.zeros((3,1))
+rotorThrust_g = np.zeros((6,1))
 phi_d_g = np.zeros((3,1))
 cm_g = math_lib.math_lib_wCasadi()
 
 odom_cb_flag = False
 poseSp_cb_flag = False
-wrench_cb_flag = False
+# wrench_cb_flag = False
+rotorThrust_cb_flag = False
 
 initial_run_flag = True
 start_flag = False
 
 def odom_cb(msg: Odometry):
-    odom_cb_flag = True
-    quat_g[0] = msg.pose.pose.orientation.w
-    quat_g[1] = msg.pose.pose.orientation.x
-    quat_g[2] = msg.pose.pose.orientation.y
-    quat_g[3] = msg.pose.pose.orientation.z
+    global R_g, odom_cb_flag, phi_g, cm_g
 
-    R_g = cm_g.q2R_numeric(quat_g)
+    odom_cb_flag = True
+    quat = np.zeros((4,1))
+    quat[0] = msg.pose.pose.orientation.w
+    quat[1] = msg.pose.pose.orientation.x
+    quat[2] = msg.pose.pose.orientation.y
+    quat[3] = msg.pose.pose.orientation.z
+
+    R_g = cm_g.q2R_numeric(quat)
     phi_g = cm_g.R2rpy_numeric(R_g)
+    # print("phi_g: ", phi_g)
 
 def poseSp_cb(msg: PoseSp):
+    global poseSp_cb_flag, phi_d_g, cm_g
+
     poseSp_cb_flag = True
     quat_d = np.zeros((4))
     
@@ -67,19 +76,34 @@ def poseSp_cb(msg: PoseSp):
 
     R_d = cm_g.q2R_numeric(quat_d)
     phi_d_g = cm_g.R2rpy_numeric(R_d)
+    # print("phi_d_g: ", phi_d_g)
 
-def wrench_cb(msg: Wrench):
-    wrench_cb_flag = True
-    force_g[0] = msg.wrench.force.x
-    force_g[1] = msg.wrench.force.y
-    force_g[2] = msg.wrench.force.z
+# def wrench_cb(msg: Wrench):
+#     wrench_cb_flag = True
+#     force_g[0] = msg.wrench.force.x
+#     force_g[1] = msg.wrench.force.y
+#     force_g[2] = msg.wrench.force.z
     
-    torque_g[0] = msg.wrench.torque.x
-    torque_g[1] = msg.wrench.torque.y
-    torque_g[2] = msg.wrench.torque.z
+#     torque_g[0] = msg.wrench.torque.x
+#     torque_g[1] = msg.wrench.torque.y
+#     torque_g[2] = msg.wrench.torque.z
 
-def start_planning_cb(req):
+#     print("phi_d_g: ", phi_d_g)
+
+def rotorThrust_cb(msg: RotorThrust):
+    global rotorThrust_cb_flag, rotorThrust_g
+
+    rotorThrust_cb_flag = True
+    for k in range(6):
+        rotorThrust_g[k] = msg.rotorThrust[k]
+    # print("rotorThrust: ", rotorThrust_g)
+
+def start_planning_cb(req: SetBoolRequest):
+    global start_flag
+
     start_flag = req.data
+    if start_flag:
+        rospy.logwarn("reorient_planner start")
     return SetBoolResponse(success=True)
 
 if __name__ == '__main__':
@@ -87,23 +111,25 @@ if __name__ == '__main__':
     deg2rad = math.pi/180.0
     rad2deg = 180.0/math.pi
 
+    """ parameter to change! """
+
     dt = 0.01
     ur_max = 16.0*np.ones((6,1))
     ur_min = np.zeros((6,1))
     phidot_lb = deg2rad*-30.0
     phidot_ub = deg2rad*30.0
-    m = 2.8
+    m = 3.0
     g = 9.81
     mu_dot = 1.0
-    L = 0.258
+    L = 0.278
     kf = 0.016
     tilt_ang = deg2rad*30
     Am = np.zeros((6,6))
     Am_inv = np.zeros((6,6))
 
     param_ = param_class.Param(dt=dt, Am=Am, Am_inv=Am_inv, ur_max=ur_max, ur_min=ur_min,
-                               phidot_lb=phidot_lb, phidot_ub=phidot_ub, m=m, g=g, mu_dot=mu_dot, 
-                               L=L, kf=kf, tilt_ang=tilt_ang)
+                            phidot_lb=phidot_lb, phidot_ub=phidot_ub, m=m, g=g, mu_dot=mu_dot, 
+                            L=L, kf=kf, tilt_ang=tilt_ang)
 
     reorient_plan_obj = reorient_planner_v2.reorient_planner(param = param_)
     param_.Am = reorient_plan_obj.set_Am(param_)
@@ -142,7 +168,8 @@ if __name__ == '__main__':
         rospy.init_node('reorient_planning', anonymous=False)
         
         odom_sub =rospy.Subscriber('/state_estimator/filtered/lpf', Odometry, odom_cb, tcp_nodelay=True)
-        wrench_sub = rospy.Subscriber('/ctrller/wrench', Wrench, wrench_cb, tcp_nodelay=True)
+        # wrench_sub = rospy.Subscriber('/ctrller/wrench', Wrench, wrench_cb, tcp_nodelay=True)
+        rotorThrust_sub = rospy.Subscriber('/ctrller/rotorThrust', RotorThrust, rotorThrust_cb, tcp_nodelay=True)
         poseT_sub = rospy.Subscriber('/ref_planner/poseTarget',PoseSp, poseSp_cb, tcp_nodelay=True)
 
         compt_time_pub = rospy.Publisher('/reorient_planning/compt_time', compt_time, queue_size=10, tcp_nodelay=True)
@@ -167,13 +194,25 @@ if __name__ == '__main__':
         opti_variable_msg.input  = [0.0, 0.0]
         
         rate = rospy.Rate(ros_rate_g)
+
+        force = np.zeros((3,1))
+        force[2] = param_.m*param_.g
+        torque = np.zeros((3,1))
+
+        rotorThrust_g = np.ones((6,1))*(param_.m*param_.g/6.0)
        
         while not rospy.is_shutdown():
 
-            if (odom_cb_flag and poseSp_cb_flag and wrench_cb_flag):
+            # if (True):
+            if (odom_cb_flag and poseSp_cb_flag and rotorThrust_cb_flag):
                 # ocp input setting
-                Rf_ = (R_g @ force_g).T
-                tau_ = torque_g.T
+
+                wrench = param_.Am @ rotorThrust_g
+                force = wrench[0:3]
+                torque = wrench[3:6]
+
+                Rf_ = (R_g @ force).T
+                tau_ = torque.T
                 phi_ = phi_g.T
                 phi_d_ = phi_d_g.T
                 
@@ -203,8 +242,7 @@ if __name__ == '__main__':
                     rotorThurst_msg.header.seq += 1
 
                     compt_time_msg.compt_time = t_compt
-                    rotorThurst_msg.pwm = reorient_plan_obj.find_ustar(np.vstack((X_sol,phi_d_[0,2])),
-                                                                       Rf_.T, tau_.T)
+                    rotorThurst_msg.pwm = reorient_plan_obj.find_ustar(np.hstack((X_sol,phi_d_[0,2])),Rf_.T, tau_.T)
                     opti_variable_msg.state = X_sol
                     opti_variable_msg.input = U_sol
 
@@ -217,3 +255,9 @@ if __name__ == '__main__':
 
     except rospy.ROSInterruptException:
         pass
+
+
+"""
+TEST 할 것
+    1. subscribe 잘하는 지 
+"""

@@ -25,7 +25,7 @@ class math_lib_wCasadi:
         return self.Rz_casadi(angs[2]) @ self.Ry_casadi(angs[1]) @ self.Rx_casadi(angs[0])
 
     def Rzyx_numeric(self, angs):
-        return self.Rz_numeric(angs[2]) @ self.Ry_numeric(angs[1]) @ self.Rx_numeric(angs[0])
+        return self.Rz_numeric(angs[2].item()) @ self.Ry_numeric(angs[1].item()) @ self.Rx_numeric(angs[0].item())
 
     def q2R_numeric(self, quat):
         quat_scalar = quat[0]
@@ -36,11 +36,11 @@ class math_lib_wCasadi:
         return out_rot
 
     def Hat_numeric(self, vec):
-        return np.array([ [0, -vec[2], vec[1]], [vec[2], 0, -vec[0]], [-vec[1], vec[0], 0]])
+        return np.array([ [0, -vec[2].item(), vec[1].item()], [vec[2].item(), 0, -vec[0].item()], [-vec[1].item(), vec[0].item(), 0]])
 
     def R2rpy_numeric(self, R):
         r = m.atan2(R[2,1], R[2,2])
         p = m.atan2(-R[2,0], m.sqrt( abs(R[2,1]*R[2,1] + R[2,2]*R[2,2]) ))
         y = m.atan2(R[1,0], R[0,0])
 
-        return np.array([r, p, y])
+        return np.array([[r], [p], [y]])
