@@ -5,7 +5,7 @@ import numpy as np
 import math_lib
 import math
 import sys
-sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
+# sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel, AcadosSimSolver
 import traceback
 from casadi import SX, vertcat, blockcat, power, dot, simplify
@@ -42,9 +42,10 @@ Modification from the original code
 """
 
 class reorient_planner:
-    def __init__(self, param):
+    def __init__(self, param, hover_shrink_factor = 1.0):
         # self.param = param_class.Param()
         self.param = param
+        self.hover_shrink_factor = hover_shrink_factor
 
         self.param.Am = self.set_Am(param)
         self.param.Am_inv = np.linalg.inv(self.param.Am)
@@ -96,9 +97,9 @@ class reorient_planner:
 
         ############### CONSTRAINT ###############
         deg2rad = math.pi/180.0
-        x1 = deg2rad*26.3819
-        y1 = deg2rad*14.3216
-        y2 = deg2rad*-29.6985
+        x1 = self.hover_shrink_factor*deg2rad*26.3819
+        y1 = self.hover_shrink_factor*deg2rad*14.3216
+        y2 = self.hover_shrink_factor*deg2rad*-29.6985
 
         # 1. input lower & upper bounds
         self.ocp.constraints.lbu = np.array([[param_.phidot_lb],[param_.phidot_lb]]).flatten()

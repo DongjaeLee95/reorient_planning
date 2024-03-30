@@ -126,12 +126,15 @@ if __name__ == '__main__':
     tilt_ang = deg2rad*30
     Am = np.zeros((6,6))
     Am_inv = np.zeros((6,6))
+    hover_shrink_factor_ = 0.5 # 0.5, 1.0
+
+    """ parameter to change end """
 
     param_ = param_class.Param(dt=dt, Am=Am, Am_inv=Am_inv, ur_max=ur_max, ur_min=ur_min,
                             phidot_lb=phidot_lb, phidot_ub=phidot_ub, m=m, g=g, mu_dot=mu_dot, 
                             L=L, kf=kf, tilt_ang=tilt_ang)
 
-    reorient_plan_obj = reorient_planner_v2.reorient_planner(param = param_)
+    reorient_plan_obj = reorient_planner_v2.reorient_planner(param = param_, hover_shrink_factor = hover_shrink_factor_)
     param_.Am = reorient_plan_obj.set_Am(param_)
     param_.Am_inv = np.linalg.inv(param_.Am)
 

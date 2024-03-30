@@ -5,7 +5,7 @@ import numpy as np
 import math_lib
 import math
 import sys
-sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
+# sys.path.append("/home/dj/acados/interfaces/acados_template/acados_template")
 from acados_template import AcadosOcp, AcadosOcpSolver, AcadosModel, AcadosSimSolver
 import traceback
 from casadi import SX, vertcat, blockcat, power, dot, simplify
